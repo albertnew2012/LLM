@@ -2,6 +2,7 @@ import os
 import torch
 import tiktoken
 from tiny_gpt import GPT, GPTConfig
+import re
 
 # ============================
 # 1. Load data
@@ -9,11 +10,27 @@ from tiny_gpt import GPT, GPTConfig
 with open("input.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
-enc = tiktoken.get_encoding("cl100k_base")   # GPT-4 tokenizer
 
-# Encode entire dataset
-data = enc.encode(text)   # ← RETURNS list of token IDs
-data = torch.tensor(data, dtype=torch.long)
+sentences = re.split(r'(?<=[.!?])\s+', text)
+sentences = [s.strip() for s in sentences if s.strip()]
+
+enc = tiktoken.get_encoding("cl100k_base")   # GPT-4 tokenizer
+base_vocab_size = enc.n_vocab               # ~100256
+eos_token_id = base_vocab_size              # new EOS token
+vocab_size = base_vocab_size + 1            # expand vocab
+
+# # Encode entire dataset
+# data = enc.encode(text)   # ← RETURNS list of token IDs
+# data = torch.tensor(data, dtype=torch.long)
+
+# Encode entire dataset with EOS
+ids = []
+for s in sentences:
+    tok = enc.encode(s)
+    tok.append(eos_token_id)     # ADD EOS HERE
+    ids.extend(tok)
+
+data = torch.tensor(ids, dtype=torch.long)
 
 print("Total tokens:", len(data))
 print("Example:", data[:20])
@@ -39,7 +56,7 @@ def get_batch(split):
 # ============================
 # 3. Model config (LARGE VOCAB)
 # ============================
-vocab_size = enc.n_vocab   # ~100,000 tokens
+# vocab_size = enc.n_vocab   # ~100,000 tokens
 print("GPT-4 tokenizer vocab size:", vocab_size)
 
 config = GPTConfig(
@@ -48,6 +65,7 @@ config = GPTConfig(
     n_layer=4,
     n_head=4,
     n_embd=256,
+    eos_token_id=eos_token_id
 )
 
 model = GPT(config).cuda()
@@ -79,7 +97,10 @@ for step in range(2000):
         # Higher temperature → more inventive text
         # No top_k → less deterministic
         out = model.generate(context, max_new_tokens=80, temperature=1.2, top_k=50)
-        decoded = enc.decode(out[0].tolist())
+        # Remove EOS from out
+        out_ids = out[0].tolist()
+        clean_ids = [t for t in out_ids if t != eos_token_id]
+        decoded = enc.decode(clean_ids)
         print("=== SAMPLE ===")
         print(decoded)
         print("==============")

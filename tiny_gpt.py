@@ -12,14 +12,15 @@ class GPTConfig:
                  n_layer=4,
                  n_head=4,
                  n_embd=128,
-                 dropout=0.1):
+                 dropout=0.1,
+                 eos_token_id=None):
         self.vocab_size = vocab_size
         self.block_size = block_size
         self.n_layer = n_layer
         self.n_head = n_head
         self.n_embd = n_embd
         self.dropout = dropout
-
+        self.eos_token_id = eos_token_id
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, config: GPTConfig):
@@ -119,6 +120,8 @@ class GPT(nn.Module):
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         self.apply(self._init_weights)
+        
+        self.eos_token_id = config.eos_token_id 
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -163,6 +166,7 @@ class GPT(nn.Module):
         """
         idx: (B, T) context tokens
         """
+        eos_positions = []
         for _ in range(max_new_tokens):
             # crop to block_size
             idx_cond = idx[:, -self.config.block_size:]
@@ -176,7 +180,16 @@ class GPT(nn.Module):
 
             probs = F.softmax(logits, dim=-1)  # (B, vocab)
             next_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            # record EOS tokens but DO NOT STOP
+            if self.eos_token_id is not None and idx.size(0) == 1:
+                if next_token.item() == self.eos_token_id:
+                    eos_positions.append(idx.shape[1])
 
             idx = torch.cat((idx, next_token), dim=1)
 
+        # After generation, truncate to last EOS
+        if len(eos_positions) > 0:
+            last_eos = eos_positions[-1]
+            idx = idx[:, :last_eos]  # keep everything up to last EOS
+            
         return idx
