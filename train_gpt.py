@@ -2,6 +2,7 @@ import os
 import torch
 import tiktoken
 from tiny_gpt import GPT, GPTConfig
+from torch.utils.tensorboard import SummaryWriter
 import re
 
 # ============================
@@ -71,6 +72,9 @@ config = GPTConfig(
 model = GPT(config).cuda()
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
+os.makedirs("runs/checkpoints", exist_ok=True)
+writer = SummaryWriter(log_dir="runs/gpt_train")
+
 # ============================
 # 4. Training loop
 # ============================
@@ -83,8 +87,11 @@ for step in range(2000):
     loss.backward()
     optimizer.step()
 
+    writer.add_scalar("Loss/train", loss.item(), step)
+
     if step % 200 == 0:
         print(f"step={step} loss={loss.item():.4f}")
+        torch.save(model.state_dict(), f"checkpoints/gpt_step{step}.pt")
 
         # Sample some text
         # context = torch.tensor([[enc.encode("time")[0]]], dtype=torch.long).cuda()
@@ -104,3 +111,7 @@ for step in range(2000):
         print("=== SAMPLE ===")
         print(decoded)
         print("==============")
+
+torch.save(model.state_dict(), "checkpoints/gpt_final.pt")
+writer.close()
+print("Training complete. Model saved to checkpoints/gpt_final.pt")
