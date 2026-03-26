@@ -91,7 +91,7 @@ for step in range(2000):
 
     if step % 200 == 0:
         print(f"step={step} loss={loss.item():.4f}")
-        torch.save(model.state_dict(), f"checkpoints/gpt_step{step}.pt")
+        torch.save(model.state_dict(), f"runs/checkpoints/gpt_step{step}.pt")
 
         # Sample some text
         # context = torch.tensor([[enc.encode("time")[0]]], dtype=torch.long).cuda()
@@ -112,6 +112,6 @@ for step in range(2000):
         print(decoded)
         print("==============")
 
-torch.save(model.state_dict(), "checkpoints/gpt_final.pt")
+torch.save(model.state_dict(), "runs/checkpoints/gpt_final.pt")
 writer.close()
-print("Training complete. Model saved to checkpoints/gpt_final.pt")
+print("Training complete. Model saved to runs/checkpoints/gpt_final.pt")

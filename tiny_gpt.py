@@ -136,7 +136,7 @@ class GPT(nn.Module):
         idx: (B, T) integer token ids
         targets: (B, T) or None
         """
-        B, T = idx.size()
+        _, T = idx.size()
         assert T <= self.config.block_size, "Sequence length > block_size"
 
         pos = torch.arange(0, T, device=idx.device).unsqueeze(0)  # (1, T)
@@ -162,17 +162,29 @@ class GPT(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, repetition_penalty=1.3):
         """
         idx: (B, T) context tokens
+        repetition_penalty: >1.0 penalizes tokens already seen in the sequence
         """
-        eos_positions = []
+        finished = torch.zeros(idx.size(0), dtype=torch.bool, device=idx.device)
         for _ in range(max_new_tokens):
             # crop to block_size
             idx_cond = idx[:, -self.config.block_size:]
 
             logits, _ = self(idx_cond)
-            logits = logits[:, -1, :] / temperature  # last step
+            logits = logits[:, -1, :]  # (B, vocab)
+
+            # Repetition penalty: downscale logits for tokens already generated
+            if repetition_penalty != 1.0:
+                for b in range(idx.size(0)):
+                    for token_id in set(idx[b].tolist()):
+                        if logits[b, token_id] > 0:
+                            logits[b, token_id] /= repetition_penalty
+                        else:
+                            logits[b, token_id] *= repetition_penalty
+
+            logits = logits / temperature
 
             if top_k is not None:
                 v, _ = torch.topk(logits, top_k)
@@ -180,16 +192,14 @@ class GPT(nn.Module):
 
             probs = F.softmax(logits, dim=-1)  # (B, vocab)
             next_token = torch.multinomial(probs, num_samples=1)  # (B, 1)
-            # record EOS tokens but DO NOT STOP
-            if self.eos_token_id is not None and idx.size(0) == 1:
-                if next_token.item() == self.eos_token_id:
-                    eos_positions.append(idx.shape[1])
+
+            if self.eos_token_id is not None:
+                eos_fill = torch.full_like(next_token, self.eos_token_id)
+                next_token = torch.where(finished.unsqueeze(1), eos_fill, next_token)
+                finished |= next_token.squeeze(1).eq(self.eos_token_id)
 
             idx = torch.cat((idx, next_token), dim=1)
-
-        # After generation, truncate to last EOS
-        if len(eos_positions) > 0:
-            last_eos = eos_positions[-1]
-            idx = idx[:, :last_eos]  # keep everything up to last EOS
+            if finished.all():
+                break
             
         return idx
